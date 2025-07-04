@@ -1,0 +1,11 @@
+{
+  "name": "bili-monitor",
+  "version": "1.1.1",
+  "description": "B站评论弹幕监控助手",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/naaammme/bili-monitor.git"
+  },
+  "author": "naaammme",
+  "license": "AGPL-3.0-or-later"
+}
