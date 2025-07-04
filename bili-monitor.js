@@ -2,7 +2,7 @@
 // @name          B站评论弹幕监控助手
 // @name:zh-CN    B站评论弹幕监控助手
 // @name:en       Bilibili Comment & Danmaku Monitor
-// @namespace     https://scriptcat.org/users/你的用户名
+// @namespace     https://scriptcat.org/users/naaammme
 // @version       1.1.1
 // @description   实时监控并记录B站评论和弹幕，优化版本降低风控检测风险(可能有兼容问题)。
 // @author        naaaammme
@@ -11,13 +11,27 @@
 // @grant         none
 // @run-at        document-end
 // @license       AGPL-3.0-or-later
-// @homepage      https://github.com/你的用户名/bili-monitor
-// @supportURL    https://github.com/你的用户名/bili-monitor/issues
-// @updateURL     https://scriptcat.org/scripts/code/你的脚本ID.user.js
-// @downloadURL   https://scriptcat.org/scripts/code/你的脚本ID.user.js
+// @homepage      https://github.com/naaammme/bili-monitor
+// @supportURL    https://github.com/naaammme/bili-monitor/issues
 // ==/UserScript==
 (() => {
   "use strict";
+
+  // ===== 配置参数 =====
+  const STORAGE_CONFIG = {
+    // localStorage存储数量限制
+    LOCALSTORAGE_LIMIT: 5000,
+
+    // 内存中数据量限制
+    MEMORY_LIMIT_COMMENTS: 2000,  // 评论内存限制
+    MEMORY_LIMIT_DANMAKU: 2000,   // 弹幕内存限制
+
+    // 界面显示数量限制
+    DISPLAY_LIMIT: 100,
+
+    // 导出数据来源：'localStorage' 或 'memory'
+    EXPORT_SOURCE: 'localStorage'
+  };
 
   let capturedComments = [];
   let capturedDanmaku = [];
@@ -48,8 +62,8 @@
 
   function saveToCache() {
     try {
-      localStorage.setItem(CACHE_KEYS.comments, JSON.stringify(capturedComments.slice(-1000)));
-      localStorage.setItem(CACHE_KEYS.danmaku, JSON.stringify(capturedDanmaku.slice(-1000)));
+      localStorage.setItem(CACHE_KEYS.comments, JSON.stringify(capturedComments.slice(-STORAGE_CONFIG.LOCALSTORAGE_LIMIT)));
+      localStorage.setItem(CACHE_KEYS.danmaku, JSON.stringify(capturedDanmaku.slice(-STORAGE_CONFIG.LOCALSTORAGE_LIMIT)));
     } catch (e) {
       console.error('保存缓存失败:', e);
     }
@@ -220,7 +234,7 @@
       cursor: move;
     `;
     header.innerHTML = `
-      <h3 style="margin: 0; font-size: 16px;">B站数据监控工具 v4.0</h3>
+      <h3 style="margin: 0; font-size: 16px;">B站评论弹幕记录</h3>
       <div>
         <button id="export-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 12px; border-radius: 5px; margin-right: 10px; cursor: pointer; font-size: 14px;">导出数据</button>
         <button id="close-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 18px;">×</button>
@@ -365,7 +379,7 @@
       return;
     }
 
-    listDiv.innerHTML = capturedComments.slice(-50).reverse().map(comment => {
+    listDiv.innerHTML = capturedComments.slice(-STORAGE_CONFIG.DISPLAY_LIMIT).reverse().map(comment => {
       const hasImages = comment.images && comment.images.length > 0;
 
       return `
@@ -414,7 +428,7 @@
       return;
     }
 
-    listDiv.innerHTML = capturedDanmaku.slice(-50).reverse().map(danmaku => `
+    listDiv.innerHTML = capturedDanmaku.slice(-STORAGE_CONFIG.DISPLAY_LIMIT).reverse().map(danmaku => `
       <div style="margin-bottom: 10px; padding: 10px; background: #f8f9fa; border-left: 4px solid #f25d8e; border-radius: 6px;">
         <div style="font-weight: 500; margin-bottom: 5px; color: #333; font-size: 14px;">${escapeHtml(danmaku.text)}</div>
         <div style="font-size: 12px; color: #666;">
@@ -450,15 +464,49 @@
   }
 
   function exportData() {
-    const data = {
+    if (STORAGE_CONFIG.EXPORT_SOURCE === 'localStorage') {
+      exportFromLocalStorage();
+    } else {
+      exportFromMemory();
+    }
+  }
+
+  function exportFromLocalStorage() {
+    let localStorageComments = [];
+    let localStorageDanmaku = [];
+
+    try {
+      localStorageComments = JSON.parse(localStorage.getItem(CACHE_KEYS.comments) || '[]');
+      localStorageDanmaku = JSON.parse(localStorage.getItem(CACHE_KEYS.danmaku) || '[]');
+      console.log(`从localStorage导出 - 评论:${localStorageComments.length} 弹幕:${localStorageDanmaku.length}`);
+    } catch (e) {
+      console.error('localStorage读取失败，回退到内存数据:', e);
+      exportFromMemory();
+      return;
+    }
+
+    const data = createExportData(localStorageComments, localStorageDanmaku, 'localStorage');
+    downloadJSON(data, 'bili-monitor-data');
+  }
+
+  function exportFromMemory() {
+    console.log(`从内存导出 - 评论:${capturedComments.length} 弹幕:${capturedDanmaku.length}`);
+    const data = createExportData(capturedComments, capturedDanmaku, 'memory');
+    downloadJSON(data, 'bili-monitor-data');
+  }
+
+  function createExportData(comments, danmaku, source) {
+    return {
       exportTime: new Date().toISOString(),
+      dataSource: source,
+      config: STORAGE_CONFIG,
       summary: {
-        totalComments: capturedComments.length,
-        totalDanmaku: capturedDanmaku.length,
-        imageComments: capturedComments.filter(c => c.images && c.images.length > 0).length,
-        totalImages: capturedComments.reduce((sum, c) => sum + (c.images ? c.images.length : 0), 0)
+        totalComments: comments.length,
+        totalDanmaku: danmaku.length,
+        imageComments: comments.filter(c => c.images && c.images.length > 0).length,
+        totalImages: comments.reduce((sum, c) => sum + (c.images ? c.images.length : 0), 0)
       },
-      comments: capturedComments.map(comment => ({
+      comments: comments.map(comment => ({
         text: comment.text,
         time: comment.time,
         timestamp: comment.timestamp,
@@ -472,14 +520,16 @@
         pageType: comment.pageType || getPageType(),
         url: comment.url || window.location.href
       })),
-      danmaku: capturedDanmaku
+      danmaku: danmaku
     };
+  }
 
+  function downloadJSON(data, filename) {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `bili-monitor-data-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+    a.download = `${filename}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -550,10 +600,23 @@
     return '其他';
   }
 
+  function addCommentWithLimit(comment) {
+    capturedComments.push(comment);
+
+    // 应用内存限制
+    if (capturedComments.length > STORAGE_CONFIG.MEMORY_LIMIT_COMMENTS) {
+      capturedComments = capturedComments.slice(-STORAGE_CONFIG.MEMORY_LIMIT_COMMENTS);
+      console.log(`评论超出内存限制，保留最新${STORAGE_CONFIG.MEMORY_LIMIT_COMMENTS}条`);
+    }
+
+    updateCommentsDisplay();
+    saveToCache();
+  }
+
   class OptimizedNetworkInterceptor {
     constructor() {
       this.setupFetchInterceptor();
-      log('优化的网络拦截器已启动（仅Fetch）');
+      log('网络拦截器已启动（仅Fetch）');
     }
 
     setupFetchInterceptor() {
@@ -621,11 +684,8 @@
             url: window.location.href
           };
 
-          capturedComments.push(comment);
+          addCommentWithLimit(comment);
           pendingComments.set(comment.tempId, comment);
-
-          updateCommentsDisplay();
-          saveToCache();
 
           return originalFetch.apply(this, args).then(response => {
             const clonedResponse = response.clone();
@@ -727,8 +787,11 @@
 
       if (!isDuplicate) {
         capturedDanmaku.unshift(danmaku);
-        if (capturedDanmaku.length > 1000) {
-          capturedDanmaku = capturedDanmaku.slice(0, 1000);
+
+        // 应用内存限制
+        if (capturedDanmaku.length > STORAGE_CONFIG.MEMORY_LIMIT_DANMAKU) {
+          capturedDanmaku = capturedDanmaku.slice(0, STORAGE_CONFIG.MEMORY_LIMIT_DANMAKU);
+          console.log(`弹幕超出内存限制，保留最新${STORAGE_CONFIG.MEMORY_LIMIT_DANMAKU}条`);
         }
 
         log('弹幕已记录', danmaku.text);
@@ -834,12 +897,10 @@
         url: window.location.href
       };
 
-      capturedComments.push(comment);
+      addCommentWithLimit(comment);
       pendingComments.set(comment.tempId, comment);
 
       log('捕获评论发送', commentText);
-      updateCommentsDisplay();
-      saveToCache();
 
       setTimeout(() => {
         if (pendingComments.has(comment.tempId) && !comment.rpid) {
@@ -922,7 +983,8 @@
   }
 
   function init() {
-    console.log('B站监控工具启动（优化版 v4.0）');
+    console.log('B站监控工具启动（配置化版本）');
+    console.log('配置参数:', STORAGE_CONFIG);
 
     loadCachedData();
     createFloatingBall();
